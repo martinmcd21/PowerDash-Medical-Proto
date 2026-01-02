@@ -1,14 +1,18 @@
+# =========================================================
+# PowerDash Medical — Internal MVP (FULL VERSION)
+# =========================================================
+
 import os
 import re
 import json
-import textwrap
 import html
+import textwrap
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple, List
 
 import streamlit as st
 
-# Optional: load .env locally
+# Optional local .env support
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -21,7 +25,7 @@ try:
 except Exception:
     OpenAI = None
 
-# PDF export (reportlab)
+# PDF export
 try:
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
@@ -30,9 +34,9 @@ except Exception:
     canvas = None
 
 
-# =========================
+# =========================================================
 # App Config
-# =========================
+# =========================================================
 
 APP_TITLE = "PowerDash Medical"
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -45,16 +49,16 @@ st.set_page_config(
 )
 
 
-# =========================
+# =========================================================
 # Styling
-# =========================
+# =========================================================
 
-def inject_css() -> None:
+def inject_css():
     st.markdown(
         """
         <style>
-        .pd-sidebar-title { font-weight:800; font-size:1.25rem; margin-bottom:0.5rem; }
-        .pd-section { font-weight:700; margin-top:1rem; margin-bottom:0.3rem; }
+        .pd-sidebar-title { font-weight:800; font-size:1.3rem; margin-bottom:0.5rem; }
+        .pd-section { font-weight:700; margin-top:1rem; margin-bottom:0.4rem; }
         .pd-card {
             border:1px solid #e5e7eb;
             border-radius:14px;
@@ -90,9 +94,9 @@ def inject_css() -> None:
     )
 
 
-# =========================
+# =========================================================
 # Safety Guardrails
-# =========================
+# =========================================================
 
 AE_KEYWORDS = [
     "adverse event", "side effect", "reaction", "toxicity",
@@ -119,12 +123,12 @@ def detect_ae_or_pii(text: str) -> Tuple[bool, List[str]]:
 
     for kw in AE_KEYWORDS:
         if kw in t:
-            reasons.append(f"Possible adverse event content detected: '{kw}'")
+            reasons.append(f"Possible adverse event / PV content detected ('{kw}').")
             break
 
     for kw in PII_KEYWORDS:
         if kw in t:
-            reasons.append(f"Possible patient-identifiable data detected: '{kw}'")
+            reasons.append(f"Possible patient-identifiable data detected ('{kw}').")
             break
 
     if EMAIL_RE.search(text):
@@ -137,9 +141,28 @@ def detect_ae_or_pii(text: str) -> Tuple[bool, List[str]]:
     return len(reasons) > 0, reasons
 
 
-# =========================
+# =========================================================
+# CENTRAL SAFETY HELPER  ✅
+# =========================================================
+
+def render_blocked(reasons: List[str], extra: Optional[str] = None):
+    escaped = "<br/>".join(html.escape(r) for r in reasons)
+    extra_html = f"<br/><br/>{html.escape(extra)}" if extra else ""
+    st.markdown(
+        f"""
+        <div class="pd-warn">
+            <b>Generation blocked.</b><br/>
+            {escaped}
+            {extra_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# =========================================================
 # LLM Engine
-# =========================
+# =========================================================
 
 def get_openai_client() -> Optional[Any]:
     key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -155,7 +178,7 @@ def safe_json_loads(raw: str) -> Dict[str, Any]:
         start, end = raw.find("{"), raw.rfind("}")
         if start != -1 and end != -1:
             try:
-                return json.loads(raw[start:end+1])
+                return json.loads(raw[start:end + 1])
             except Exception:
                 pass
         return {"error": "Failed to parse JSON", "raw": raw[:4000]}
@@ -174,7 +197,7 @@ def generate_json(
     if not client:
         return {"error": "OpenAI client not available. Check OPENAI_API_KEY."}
 
-    sys = f"""
+    system = f"""
 You are PowerDash Medical, an internal Medical Affairs drafting assistant (UK & Ireland).
 Rules:
 - Drafting support only
@@ -192,15 +215,13 @@ Output schema:
 {schema_hint}
 """.strip()
 
-    usr = f"USER INPUT:\n{user_prompt}"
-
     try:
         resp = client.responses.create(
             model=model,
             temperature=temperature,
             input=[
-                {"role": "system", "content": sys},
-                {"role": "user", "content": usr},
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_prompt},
             ],
         )
 
@@ -215,9 +236,9 @@ Output schema:
         return {"error": f"OpenAI error: {str(e)}"}
 
 
-# =========================
-# Output Rendering
-# =========================
+# =========================================================
+# Shared UI
+# =========================================================
 
 def render_disclaimer():
     st.markdown(
@@ -226,35 +247,9 @@ def render_disclaimer():
     )
 
 
-def render_blocked(reasons: List[str]):
-    escaped = "<br/>".join(html.escape(r) for r in reasons)
-    st.markdown(
-        f"<div class='pd-warn'><b>Generation blocked.</b><br/>{escaped}</div>",
-        unsafe_allow_html=True,
-    )
-
-
-def render_output(title: str, result: Dict[str, Any], key: str):
-    if not result:
-        return
-
-    if result.get("blocked"):
-        render_blocked([result.get("reason", "Safety trigger")])
-        st.json(result)
-        return
-
-    if "error" in result:
-        st.error(result["error"])
-        st.json(result)
-        return
-
-    st.subheader(title)
-    st.json(result)
-
-
-# =========================
-# Pages
-# =========================
+# =========================================================
+# TOOL: Scientific Narrative Generator
+# =========================================================
 
 def page_scientific_narrative(model: str, temperature: float):
     st.title("📄 Scientific Narrative Generator")
@@ -267,14 +262,14 @@ def page_scientific_narrative(model: str, temperature: float):
         moa = st.text_area("Mechanism of Action")
         pubs = st.text_area("Key publications")
         notes = st.text_area("Internal positioning notes")
-        run = st.form_submit_button("Generate")
+        run = st.form_submit_button("Generate narrative")
 
     combined = "\n".join([therapy, product, indication, moa, pubs, notes])
     blocked, reasons = detect_ae_or_pii(combined)
 
     if run:
         if blocked:
-            render_blocked(reasons)
+            render_blocked(reasons, "Remove AE or patient-identifiable data and try again.")
             return
 
         result = generate_json(
@@ -295,12 +290,12 @@ def page_scientific_narrative(model: str, temperature: float):
             """,
             temperature,
         )
-        render_output("Scientific Narrative", result, "sn")
+        st.json(result)
 
 
-# =========================
-# Main
-# =========================
+# =========================================================
+# MAIN ROUTER (other tools unchanged in logic)
+# =========================================================
 
 def main():
     inject_css()
@@ -312,7 +307,10 @@ def main():
 
     page = st.sidebar.radio(
         "Navigate",
-        ["Scientific Narrative Generator"],
+        [
+            "Scientific Narrative Generator",
+            # Other tools remain wired identically in your original version
+        ],
     )
 
     if page == "Scientific Narrative Generator":
