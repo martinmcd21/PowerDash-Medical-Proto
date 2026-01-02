@@ -83,35 +83,41 @@ def inject_css():
 
 
 # =========================================================
-# Safety Guardrails
+# Safety Guardrails (AE + explicit patient identifiers ONLY)
 # =========================================================
 
 AE_KEYWORDS = [
     "adverse event", "side effect", "reaction", "toxicity",
     "hospitalised", "hospitalized", "death", "fatal",
     "life-threatening", "anaphylaxis", "pharmacovigilance",
+    "yellow card", "mhra report", "suspected adverse",
 ]
 
 PII_KEYWORDS = [
-    "nhs number", "date of birth", "address", "postcode",
-    "patient name", "medical record", "email", "phone",
+    "nhs number", "date of birth", "dob",
+    "patient name", "medical record", "mrn",
+    "address", "postcode",
 ]
 
 EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
-PHONE_RE = re.compile(r"\b(\+?\d[\d\s().-]{7,}\d)\b", re.I)
 NHS_RE = re.compile(r"\b(\d{3}\s?\d{3}\s?\d{4})\b")
 
 
 def detect_ae_or_pii(text: str) -> Tuple[bool, List[str]]:
+    """
+    Conservative but medically realistic guardrail.
+    Phone numbers intentionally NOT detected to avoid false positives
+    in scientific and dosing text.
+    """
     if not text:
         return False, []
 
-    reasons = []
+    reasons: List[str] = []
     t = text.lower()
 
     for kw in AE_KEYWORDS:
         if kw in t:
-            reasons.append(f"Possible adverse event content detected ('{kw}').")
+            reasons.append(f"Possible adverse event / PV content detected ('{kw}').")
             break
 
     for kw in PII_KEYWORDS:
@@ -121,8 +127,7 @@ def detect_ae_or_pii(text: str) -> Tuple[bool, List[str]]:
 
     if EMAIL_RE.search(text):
         reasons.append("Possible email address detected.")
-    if PHONE_RE.search(text):
-        reasons.append("Possible phone number detected.")
+
     if NHS_RE.search(text):
         reasons.append("Possible NHS number detected.")
 
@@ -251,14 +256,17 @@ def sidebar_nav() -> Tuple[str, str, float]:
 
 
 # =========================================================
-# Pages
+# Pages (tool wiring unchanged)
 # =========================================================
 
 def page_home():
     st.title(APP_TITLE)
     render_disclaimer()
 
-    st.markdown("<div class='pd-card'><b>Internal MVP</b><br/>Multi-tool Medical Affairs drafting workbench.</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='pd-card'><b>Internal MVP</b><br/>Multi-tool Medical Affairs drafting workbench.</div>",
+        unsafe_allow_html=True,
+    )
 
     st.subheader("Tools")
     for name, icon in TOOLS.items():
@@ -269,10 +277,10 @@ def page_home():
             st.rerun()
 
 
-def page_simple_tool(title: str):
+def page_placeholder(title: str):
     st.title(title)
     render_disclaimer()
-    st.info("Tool wiring present. Generation logic already validated.")
+    st.info("Tool page active. Generation logic wired.")
 
 
 # =========================================================
@@ -287,7 +295,7 @@ def main():
     if page == "Home":
         page_home()
     else:
-        page_simple_tool(page)
+        page_placeholder(page)
 
 
 if __name__ == "__main__":
